@@ -122,32 +122,77 @@ type ClientMsg struct {
     UserAgent *UserAgentMsg `json:"ua,omitempty"`
 }
 
-var addr = flag.String("addr", "cmdns.dev.dns-oarc.net:443", "http service address")
+var addr = flag.String("addr", "cmdns.dev.dns-oarc.net", "websocket address")
+var exitWhenDone = flag.Bool("done", false, "Exit when done")
+
+var c *websocket.Conn
+
+func send(m *ClientMsg) error {
+    b, err := json.Marshal(m)
+    if err != nil {
+        log.Println("send json.Marshal():", err)
+        return err
+    }
+    err = c.WriteMessage(websocket.TextMessage, b)
+    if err != nil {
+        log.Println("send conn.WriteMessage():", err)
+        return err
+    }
+    fmt.Println("{\"send\":" + string(b) + "}")
+    return nil
+}
 
 func main() {
     flag.Parse()
     log.SetFlags(0)
+    log.SetOutput(os.Stderr)
 
     interrupt := make(chan os.Signal, 1)
     signal.Notify(interrupt, os.Interrupt)
 
-    u := url.URL{Scheme: "wss", Host: *addr, Path: "/ws/"}
+    u := url.URL{Scheme: "wss", Host: *addr + ":443", Path: "/ws/"}
     log.Printf("connecting to %s", u.String())
 
-    c, _, err := websocket.DefaultDialer.Dial(u.String(), nil)
+    var err error
+    c, _, err = websocket.DefaultDialer.Dial(u.String(), nil)
     if err != nil {
         log.Fatal("dial:", err)
     }
     defer c.Close()
 
     done := make(chan struct{})
-
-    prepareDone := 0
-    prepareTotal := 0
+    lookup := make(chan *ClientMsg)
 
     go func() {
-        defer c.Close()
+        for {
+            select {
+            case <-done:
+                return
+            case m, ok := <-lookup:
+                if !ok {
+                    return
+                }
+                _, err := http.Get("http://" + m.Lookup.Dn + "/dot.png")
+                if err != nil {
+                    m.Lookup.Success = false
+                    m.Lookup.Error = fmt.Sprintf("%v", err)
+                } else {
+                    m.Lookup.Success = true
+                }
+                if err = send(m); err != nil {
+                    return
+                }
+            }
+        }
+    }()
+
+    go func() {
         defer close(done)
+        defer close(lookup)
+
+        prepareDone := 0
+        prepareTotal := 0
+
         for {
             _, message, err := c.ReadMessage()
             if err != nil {
@@ -156,11 +201,12 @@ func main() {
             }
             lines := strings.Split(string(message), "\n")
             for _, line := range lines {
-                log.Printf("%s", line)
+                fmt.Println(line)
 
                 var m ClientMsg
                 if err = json.Unmarshal([]byte(line), &m); err != nil {
-                    log.Println(err)
+                    log.Println("read json.Unmarshal():", err)
+                    return
                 } else {
                     if m.Prepare != nil {
                         if !m.Prepare.Done {
@@ -169,40 +215,28 @@ func main() {
                             prepareDone++
                         }
                         if prepareTotal > 0 && prepareTotal == prepareDone {
-                            err = c.WriteMessage(websocket.TextMessage, []byte("{\"check\":{\"all\":true}}"))
-                            if err != nil {
-                                log.Println("write:", err)
+                            if err = send(&ClientMsg{Check: &CheckMsg{All: true}}); err != nil {
                                 return
                             }
                         }
                     }
                     if m.Lookup != nil {
-                        _, err := http.Get("http://" + m.Lookup.Dn + "/dot.png")
-                        if err != nil {
-                            m.Lookup.Success = false
-                            m.Lookup.Error = fmt.Sprintf("%v", err)
-                        } else {
-                            m.Lookup.Success = true
-                        }
-                        b, err := json.Marshal(m)
-                        if err != nil {
-                            log.Println("json.Marshal():", err)
-                            return
-                        }
-                        err = c.WriteMessage(websocket.TextMessage, b)
-                        if err != nil {
-                            log.Println("write:", err)
-                            return
-                        }
+                        func() {
+                            defer func() {
+                                recover()
+                            }()
+                            lookup <- &m
+                        }()
+                    }
+                    if m.Rating != nil && *exitWhenDone == true {
+                        return
                     }
                 }
             }
         }
     }()
 
-    err = c.WriteMessage(websocket.TextMessage, []byte("{\"prepare\":{}}"))
-    if err != nil {
-        log.Println("write:", err)
+    if err = send(&ClientMsg{Prepare: &PrepareMsg{}}); err != nil {
         return
     }
 
@@ -219,6 +253,9 @@ func main() {
             case <-done:
             case <-time.After(time.Second):
             }
+            c.Close()
+            return
+        case <-done:
             c.Close()
             return
         }
