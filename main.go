@@ -12,6 +12,8 @@ import (
     "strings"
     "time"
 
+    "github.com/miekg/dns"
+
     "github.com/gorilla/websocket"
 )
 
@@ -124,6 +126,7 @@ type ClientMsg struct {
 
 var addr = flag.String("addr", "cmdns.dev.dns-oarc.net", "websocket address")
 var exitWhenDone = flag.Bool("done", false, "Exit when done")
+var res = flag.String("res", "", "resolver IP:port to use (default system)")
 
 var c *websocket.Conn
 
@@ -172,12 +175,48 @@ func main() {
                 if !ok {
                     return
                 }
-                _, err := http.Get("http://" + m.Lookup.Dn + "/dot.png")
-                if err != nil {
-                    m.Lookup.Success = false
-                    m.Lookup.Error = fmt.Sprintf("%v", err)
+                if *res != "" {
+                    q := &dns.Msg{}
+                    q.SetQuestion(dns.Fqdn(m.Lookup.Dn), dns.TypeA)
+                    a, err := dns.Exchange(q, *res)
+                    if err != nil {
+                        m.Lookup.Success = false
+                        m.Lookup.Error = fmt.Sprintf("%v", err)
+                    } else {
+                        ok := false
+                        if len(a.Answer) > 0 {
+                            _, ok = a.Answer[0].(*dns.A)
+                        }
+                        if ok {
+                            m.Lookup.Success = true
+                        } else {
+                            q = &dns.Msg{}
+                            q.SetQuestion(dns.Fqdn(m.Lookup.Dn), dns.TypeAAAA)
+                            a, err = dns.Exchange(q, *res)
+                            if err != nil {
+                                m.Lookup.Success = false
+                                m.Lookup.Error = fmt.Sprintf("%v", err)
+                            } else {
+                                if len(a.Answer) < 1 {
+                                    m.Lookup.Success = false
+                                    m.Lookup.Error = "no answer records"
+                                } else if _, ok := a.Answer[0].(*dns.AAAA); ok {
+                                    m.Lookup.Success = true
+                                } else {
+                                    m.Lookup.Success = false
+                                    m.Lookup.Error = "no A/AAAA record found in answer"
+                                }
+                            }
+                        }
+                    }
                 } else {
-                    m.Lookup.Success = true
+                    _, err := http.Get("http://" + m.Lookup.Dn + "/dot.png")
+                    if err != nil {
+                        m.Lookup.Success = false
+                        m.Lookup.Error = fmt.Sprintf("%v", err)
+                    } else {
+                        m.Lookup.Success = true
+                    }
                 }
                 if err = send(m); err != nil {
                     return
