@@ -270,7 +270,6 @@ func main() {
                     return
                 } else {
                     if m.List != nil {
-                        fmt.Printf("Available checks: %s\n", strings.Join(m.List.Checks, ", "))
                         return
                     }
                     if m.Prepare != nil {
