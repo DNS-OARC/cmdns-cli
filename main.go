@@ -17,6 +17,10 @@ import (
     "github.com/gorilla/websocket"
 )
 
+type ListMsg struct {
+    Checks []string `json:"checks,omitempty"`
+}
+
 type CheckMsg struct {
     All bool `json:"all"`
 }
@@ -31,6 +35,8 @@ type PrepareMsg struct {
     Category    string `json:"cat,omitempty"`
     Score       int    `json:"score,omitempty"`
     Meta        bool   `json:"meta,omitempty"`
+
+    Checks      []string `json:"checks,omitempty"`
 }
 
 type ProgressMsg struct {
@@ -112,6 +118,7 @@ type UserAgentMsg struct {
 }
 
 type ClientMsg struct {
+    List      *ListMsg      `json:"list,omitempty"`
     Check     *CheckMsg     `json:"check,omitempty"`
     Prepare   *PrepareMsg   `json:"prepare,omitempty"`
     Progress  *ProgressMsg  `json:"progress,omitempty"`
@@ -127,6 +134,10 @@ type ClientMsg struct {
 var addr = flag.String("addr", "cmdns.dev.dns-oarc.net", "websocket address")
 var exitWhenDone = flag.Bool("done", false, "Exit when done")
 var res = flag.String("res", "", "resolver IP:port to use (default system)")
+var checks = flag.String("checks", "", "comma separated list of checks to run, ex trans_tcp,feat_qnmini")
+var listChecks = flag.Bool("list-checks", false, "Get a list of checks from the server and exit")
+var noSSL = flag.Bool("no-ssl", false, "Use plain ws://")
+var port = flag.String("port", "", "Custom port for websocket")
 
 var c *websocket.Conn
 
@@ -153,7 +164,18 @@ func main() {
     interrupt := make(chan os.Signal, 1)
     signal.Notify(interrupt, os.Interrupt)
 
-    u := url.URL{Scheme: "wss", Host: *addr + ":443", Path: "/ws/"}
+    if *port == "" {
+        if *noSSL {
+            *port = "80"
+        } else {
+            *port = "443"
+        }
+    }
+
+    u := url.URL{Scheme: "wss", Host: *addr + ":" + *port, Path: "/ws/"}
+    if *noSSL {
+        u = url.URL{Scheme: "ws", Host: *addr + ":" + *port, Path: "/ws/"}
+    }
     log.Printf("connecting to %s", u.String())
 
     var err error
@@ -247,6 +269,10 @@ func main() {
                     log.Println("read json.Unmarshal():", err)
                     return
                 } else {
+                    if m.List != nil {
+                        fmt.Printf("Available checks: %s\n", strings.Join(m.List.Checks, ", "))
+                        return
+                    }
                     if m.Prepare != nil {
                         if !m.Prepare.Done {
                             prepareTotal = m.Prepare.Total
@@ -275,8 +301,20 @@ func main() {
         }
     }()
 
-    if err = send(&ClientMsg{Prepare: &PrepareMsg{}}); err != nil {
-        return
+    if *listChecks {
+        if err = send(&ClientMsg{List: &ListMsg{}}); err != nil {
+            return
+        }
+    } else {
+        if *checks == "" {
+            if err = send(&ClientMsg{Prepare: &PrepareMsg{}}); err != nil {
+                return
+            }
+        } else {
+            if err = send(&ClientMsg{Prepare: &PrepareMsg{Checks: strings.Split(*checks, ",")}}); err != nil {
+                return
+            }
+        }
     }
 
     for {
