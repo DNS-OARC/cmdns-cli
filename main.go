@@ -138,6 +138,7 @@ var checks = flag.String("checks", "", "comma separated list of checks to run, e
 var listChecks = flag.Bool("list-checks", false, "Get a list of checks from the server and exit")
 var noSSL = flag.Bool("no-ssl", false, "Use plain ws://")
 var port = flag.String("port", "", "Custom port for websocket")
+var resTimeout = flag.Int("res-timeout", 5, "resolver lookup timeout in seconds")
 
 var c *websocket.Conn
 
@@ -198,9 +199,12 @@ func main() {
                     return
                 }
                 if *res != "" {
+                    c := new(dns.Client)
+                    c.Timeout = time.Second * time.Duration(*resTimeout)
+
                     q := &dns.Msg{}
                     q.SetQuestion(dns.Fqdn(m.Lookup.Dn), dns.TypeA)
-                    a, err := dns.Exchange(q, *res)
+                    a, _, err := c.Exchange(q, *res)
                     if err != nil {
                         m.Lookup.Success = false
                         m.Lookup.Error = fmt.Sprintf("%v", err)
@@ -214,7 +218,7 @@ func main() {
                         } else {
                             q = &dns.Msg{}
                             q.SetQuestion(dns.Fqdn(m.Lookup.Dn), dns.TypeAAAA)
-                            a, err = dns.Exchange(q, *res)
+                            a, _, err = c.Exchange(q, *res)
                             if err != nil {
                                 m.Lookup.Success = false
                                 m.Lookup.Error = fmt.Sprintf("%v", err)
@@ -240,7 +244,7 @@ func main() {
                         m.Lookup.Success = true
                     }
                 }
-                if err = send(m); err != nil {
+                if err = send(mr); err != nil {
                     return
                 }
             }
@@ -270,6 +274,10 @@ func main() {
                     return
                 } else {
                     if m.List != nil {
+                        err := c.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""))
+                        if err != nil {
+                            log.Println("write close:", err)
+                        }
                         return
                     }
                     if m.Prepare != nil {
