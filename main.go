@@ -36,7 +36,7 @@ type PrepareMsg struct {
     Score       int    `json:"score,omitempty"`
     Meta        bool   `json:"meta,omitempty"`
 
-    Checks      []string `json:"checks,omitempty"`
+    Checks []string `json:"checks,omitempty"`
 }
 
 type ProgressMsg struct {
@@ -244,7 +244,7 @@ func main() {
                         m.Lookup.Success = true
                     }
                 }
-                if err = send(mr); err != nil {
+                if err = send(m); err != nil {
                     return
                 }
             }
