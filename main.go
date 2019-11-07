@@ -10,6 +10,7 @@ import (
     "os"
     "os/signal"
     "strings"
+    "sync"
     "time"
 
     "github.com/miekg/dns"
@@ -141,6 +142,7 @@ var port = flag.String("port", "", "Custom port for websocket")
 var resTimeout = flag.Int("res-timeout", 5, "resolver lookup timeout in seconds")
 
 var c *websocket.Conn
+var cmux sync.Mutex
 
 func send(m *ClientMsg) error {
     b, err := json.Marshal(m)
@@ -148,6 +150,10 @@ func send(m *ClientMsg) error {
         log.Println("send json.Marshal():", err)
         return err
     }
+
+    cmux.Lock()
+    defer cmux.Unlock()
+
     err = c.WriteMessage(websocket.TextMessage, b)
     if err != nil {
         log.Println("send conn.WriteMessage():", err)
@@ -198,55 +204,57 @@ func main() {
                 if !ok {
                     return
                 }
-                if *res != "" {
-                    c := new(dns.Client)
-                    c.Timeout = time.Second * time.Duration(*resTimeout)
+                go func() {
+                    if *res != "" {
+                        c := new(dns.Client)
+                        c.Timeout = time.Second * time.Duration(*resTimeout)
 
-                    q := &dns.Msg{}
-                    q.SetQuestion(dns.Fqdn(m.Lookup.Dn), dns.TypeA)
-                    a, _, err := c.Exchange(q, *res)
-                    if err != nil {
-                        m.Lookup.Success = false
-                        m.Lookup.Error = fmt.Sprintf("%v", err)
-                    } else {
-                        ok := false
-                        if len(a.Answer) > 0 {
-                            _, ok = a.Answer[0].(*dns.A)
-                        }
-                        if ok {
-                            m.Lookup.Success = true
+                        q := &dns.Msg{}
+                        q.SetQuestion(dns.Fqdn(m.Lookup.Dn), dns.TypeA)
+                        a, _, err := c.Exchange(q, *res)
+                        if err != nil {
+                            m.Lookup.Success = false
+                            m.Lookup.Error = fmt.Sprintf("%v", err)
                         } else {
-                            q = &dns.Msg{}
-                            q.SetQuestion(dns.Fqdn(m.Lookup.Dn), dns.TypeAAAA)
-                            a, _, err = c.Exchange(q, *res)
-                            if err != nil {
-                                m.Lookup.Success = false
-                                m.Lookup.Error = fmt.Sprintf("%v", err)
+                            ok := false
+                            if len(a.Answer) > 0 {
+                                _, ok = a.Answer[0].(*dns.A)
+                            }
+                            if ok {
+                                m.Lookup.Success = true
                             } else {
-                                if len(a.Answer) < 1 {
+                                q = &dns.Msg{}
+                                q.SetQuestion(dns.Fqdn(m.Lookup.Dn), dns.TypeAAAA)
+                                a, _, err = c.Exchange(q, *res)
+                                if err != nil {
                                     m.Lookup.Success = false
-                                    m.Lookup.Error = "no answer records"
-                                } else if _, ok := a.Answer[0].(*dns.AAAA); ok {
-                                    m.Lookup.Success = true
+                                    m.Lookup.Error = fmt.Sprintf("%v", err)
                                 } else {
-                                    m.Lookup.Success = false
-                                    m.Lookup.Error = "no A/AAAA record found in answer"
+                                    if len(a.Answer) < 1 {
+                                        m.Lookup.Success = false
+                                        m.Lookup.Error = "no answer records"
+                                    } else if _, ok := a.Answer[0].(*dns.AAAA); ok {
+                                        m.Lookup.Success = true
+                                    } else {
+                                        m.Lookup.Success = false
+                                        m.Lookup.Error = "no A/AAAA record found in answer"
+                                    }
                                 }
                             }
                         }
-                    }
-                } else {
-                    _, err := http.Get("http://" + m.Lookup.Dn + "/dot.png")
-                    if err != nil {
-                        m.Lookup.Success = false
-                        m.Lookup.Error = fmt.Sprintf("%v", err)
                     } else {
-                        m.Lookup.Success = true
+                        _, err := http.Get("http://" + m.Lookup.Dn + "/dot.png")
+                        if err != nil {
+                            m.Lookup.Success = false
+                            m.Lookup.Error = fmt.Sprintf("%v", err)
+                        } else {
+                            m.Lookup.Success = true
+                        }
                     }
-                }
-                if err = send(m); err != nil {
-                    return
-                }
+                    if err = send(m); err != nil {
+                        return
+                    }
+                }()
             }
         }
     }()
