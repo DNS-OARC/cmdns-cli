@@ -243,7 +243,7 @@ func main() {
                             }
                         }
                     } else {
-                        _, err := http.Get("http://" + m.Lookup.Dn + "/dot.png")
+                        _, err := http.Get("https://" + m.Lookup.Dn + "/dot.png")
                         if err != nil {
                             m.Lookup.Success = false
                             m.Lookup.Error = fmt.Sprintf("%v", err)
