@@ -18,8 +18,22 @@ import (
     "github.com/gorilla/websocket"
 )
 
+type CheckInfoMsg struct {
+    Name        string `json:"name,omitempty"`
+    Display     string `json:"display,omitempty"`
+    Description string `json:"desc,omitempty"`
+    Category    string `json:"cat,omitempty"`
+    Score       int    `json:"score,omitempty"`
+    Meta        bool   `json:"meta,omitempty"`
+    Async       bool   `json:"async,omitempty"`
+    Default     bool   `json:"default,omitempty"`
+}
+
 type ListMsg struct {
     Checks []string `json:"checks,omitempty"`
+
+    GetInfos   bool           `json:"info,omitempty"`
+    CheckInfos []CheckInfoMsg `json:"infos,omitempty"`
 }
 
 type CheckMsg struct {
@@ -137,6 +151,7 @@ var exitWhenDone = flag.Bool("done", false, "Exit when done")
 var res = flag.String("res", "", "resolver IP:port to use (default system)")
 var checks = flag.String("checks", "", "comma separated list of checks to run, ex trans_tcp,feat_qnmini")
 var listChecks = flag.Bool("list-checks", false, "Get a list of checks from the server and exit")
+var listCheckInfos = flag.Bool("list-check-infos", false, "Get a detailed list of checks from the server and exit")
 var noSSL = flag.Bool("no-ssl", false, "Use plain ws://")
 var port = flag.String("port", "", "Custom port for websocket")
 var resTimeout = flag.Int("res-timeout", 5, "resolver lookup timeout in seconds")
@@ -318,6 +333,10 @@ func main() {
 
     if *listChecks {
         if err = send(&ClientMsg{List: &ListMsg{}}); err != nil {
+            return
+        }
+    } else if *listCheckInfos {
+        if err = send(&ClientMsg{List: &ListMsg{GetInfos: true}}); err != nil {
             return
         }
     } else {
