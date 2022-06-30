@@ -155,6 +155,7 @@ var listCheckInfos = flag.Bool("list-check-infos", false, "Get a detailed list o
 var noSSL = flag.Bool("no-ssl", false, "Use plain ws://")
 var port = flag.String("port", "", "Custom port for websocket")
 var resTimeout = flag.Int("res-timeout", 5, "resolver lookup timeout in seconds")
+var dumpDns = flag.Bool("dump-dns", false, "Dump DNS to/from resolver when using -res (stderr)")
 
 var c *websocket.Conn
 var cmux sync.Mutex
@@ -226,11 +227,17 @@ func main() {
 
                         q := &dns.Msg{}
                         q.SetQuestion(dns.Fqdn(m.Lookup.Dn), dns.TypeA)
+                        if *dumpDns {
+                            log.Println(q.String())
+                        }
                         a, _, err := c.Exchange(q, *res)
                         if err != nil {
                             m.Lookup.Success = false
                             m.Lookup.Error = fmt.Sprintf("%v", err)
                         } else {
+                            if *dumpDns {
+                                log.Println(a.String())
+                            }
                             ok := false
                             if len(a.Answer) > 0 {
                                 _, ok = a.Answer[0].(*dns.A)
