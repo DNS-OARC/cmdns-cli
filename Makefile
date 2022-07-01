@@ -13,7 +13,3 @@ format:
 
 cmdns-cli: $(SOURCES)
 	go build -v -x
-
-dep:
-	go get github.com/miekg/dns
-	go get github.com/gorilla/websocket
