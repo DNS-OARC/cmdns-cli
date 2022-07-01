@@ -10,8 +10,18 @@ Use CTRL-C to break the program when it's done (or `-done`, see `-help`),
 it does not exit on it's own because you can still get results after all
 checks are done.
 
+## Install
+
+Requires Go v1.18+
+
 ```shell
-make dep
-make
-./cmdns-cli -help
+go install github.com/DNS-OARC/cmdns-cli@latest
+```
+
+## License
+
+```
+MIT License
+
+Copyright (c) 2022 OARC, Inc.
 ```
