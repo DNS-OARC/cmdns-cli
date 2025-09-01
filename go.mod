@@ -1,4 +1,4 @@
-module github.com/DNS-OARC/cmdns-cli
+module codeberg.org/DNS-OARC/cmdns-cli
 
 go 1.23
 
