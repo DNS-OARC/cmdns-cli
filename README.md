@@ -15,7 +15,7 @@ checks are done.
 Requires Go v1.18+
 
 ```shell
-go install github.com/DNS-OARC/cmdns-cli@latest
+go install codeberg.org/DNS-OARC/cmdns-cli@latest
 ```
 
 ## License
