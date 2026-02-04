@@ -1,3 +1,5 @@
+# NOTE: Moved to https://codeberg.org/DNS-OARC/cmdns-cli
+
 # Check My DNS Client
 
 This [Go](https://golang.org) program is a command line interface for
